@@ -34,6 +34,33 @@
 
     --radius: 0.5rem;
 
+    /* Node type colors */
+    --node-greeting-bg: 210 70% 96%;
+    --node-greeting-border: 210 70% 55%;
+    --node-greeting-text: 210 70% 35%;
+
+    --node-question-bg: 45 90% 94%;
+    --node-question-border: 45 80% 50%;
+    --node-question-text: 40 80% 30%;
+
+    --node-action-bg: 160 50% 94%;
+    --node-action-border: 160 50% 45%;
+    --node-action-text: 160 50% 28%;
+
+    --node-end-bg: 0 60% 95%;
+    --node-end-border: 0 60% 55%;
+    --node-end-text: 0 60% 35%;
+
+    --node-forward-bg: 280 50% 95%;
+    --node-forward-border: 280 50% 55%;
+    --node-forward-text: 280 50% 35%;
+
+    --legend-greeting: 210 70% 55%;
+    --legend-question: 45 80% 50%;
+    --legend-action: 160 50% 45%;
+    --legend-forward: 280 50% 55%;
+    --legend-end: 0 60% 55%;
+
     --node-greeting: 210 70% 45%;
     --node-question: 45 90% 55%;
     --node-action: 160 50% 42%;
