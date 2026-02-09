@@ -1,10 +1,10 @@
 import { useAssistantConfig } from '@/hooks/useAssistantConfig';
 import FlowchartView, { FlowchartContent } from '@/components/FlowchartView';
 import NodeEditor from '@/components/NodeEditor';
-import { downloadPDF, downloadText } from '@/lib/export-utils';
+import { downloadPDF, downloadText, downloadJSON } from '@/lib/export-utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { FileText, Download, RotateCcw, Phone, PanelRightClose, PanelRight } from 'lucide-react';
+import { FileText, Download, RotateCcw, Phone, PanelRightClose, PanelRight, Upload, FileJson } from 'lucide-react';
 import { toast } from 'sonner';
 import { useState, useRef } from 'react';
 import { cn } from '@/lib/utils';
@@ -18,18 +18,21 @@ const Index = () => {
     updatePraxisName,
     updateNode,
     addChildNode,
+    insertNodeBeforeId,
     deleteNode,
     resetConfig,
+    importConfig,
+    exportConfigJSON,
   } = useAssistantConfig();
 
   const [editorOpen, setEditorOpen] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
   const pdfExportRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleExportPDF = async () => {
     setIsExporting(true);
-    // Wait for the hidden export element to render
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await new Promise(resolve => setTimeout(resolve, 200));
     
     if (pdfExportRef.current) {
       await downloadPDF(config, pdfExportRef.current);
@@ -43,6 +46,31 @@ const Index = () => {
   const handleExportText = () => {
     downloadText(config);
     toast.success('Textdatei wurde exportiert');
+  };
+
+  const handleExportJSON = () => {
+    downloadJSON(config);
+    toast.success('JSON wurde exportiert');
+  };
+
+  const handleImportJSON = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const text = evt.target?.result as string;
+      if (importConfig(text)) {
+        toast.success('Konfiguration importiert');
+      } else {
+        toast.error('Import fehlgeschlagen – ungültiges Format');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
   };
 
   const handleReset = () => {
@@ -69,6 +97,15 @@ const Index = () => {
         </div>
       )}
 
+      {/* Hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".json"
+        className="hidden"
+        onChange={handleFileImport}
+      />
+
       {/* Top Bar */}
       <header className="flex items-center justify-between border-b bg-card px-4 py-3 shrink-0">
         <div className="flex items-center gap-3">
@@ -85,6 +122,12 @@ const Index = () => {
           />
         </div>
         <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={handleImportJSON} title="JSON importieren">
+            <Upload className="w-4 h-4 mr-1" /> Import
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleExportJSON} title="JSON exportieren">
+            <FileJson className="w-4 h-4 mr-1" /> JSON
+          </Button>
           <Button variant="outline" size="sm" onClick={handleExportText}>
             <FileText className="w-4 h-4 mr-1" /> TXT
           </Button>
@@ -103,17 +146,16 @@ const Index = () => {
 
       {/* Main Content */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Flowchart Canvas */}
         <main className="flex-1 overflow-hidden">
           <FlowchartView
             nodes={config.nodes}
             selectedNodeId={selectedNodeId}
             onSelectNode={setSelectedNodeId}
             onAddChild={addChildNode}
+            onInsertBefore={insertNodeBeforeId}
           />
         </main>
 
-        {/* Editor Panel */}
         <aside
           className={cn(
             'border-l bg-card overflow-y-auto transition-all duration-300 shrink-0',
@@ -129,6 +171,7 @@ const Index = () => {
                   onUpdate={updateNode}
                   onDelete={deleteNode}
                   onAddChild={addChildNode}
+                  onInsertBefore={insertNodeBeforeId}
                 />
               ) : (
                 <div className="flex flex-col items-center justify-center h-64 text-muted-foreground text-center">
@@ -162,6 +205,10 @@ const Index = () => {
         <div className="flex items-center gap-1.5">
           <div className="w-3 h-3 rounded bg-legend-end" />
           <span>Schluss</span>
+        </div>
+        <div className="flex items-center gap-1.5 ml-4">
+          <div className="w-3 h-3 rounded ring-2 ring-yellow-400 bg-background" />
+          <span>Wichtig</span>
         </div>
       </footer>
     </div>

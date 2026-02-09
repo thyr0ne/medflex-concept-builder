@@ -38,6 +38,47 @@ export function createNewNode(parentId: string, order: number): AssistantNode {
   };
 }
 
+export function insertNodeBefore(nodes: AssistantNode[], targetNodeId: string): { newNodes: AssistantNode[]; insertedNode: AssistantNode } {
+  const target = nodes.find(n => n.id === targetNodeId);
+  if (!target || !target.parentId) throw new Error('Cannot insert before root');
+
+  const newNode: AssistantNode = {
+    id: uuidv4(),
+    parentId: target.parentId,
+    type: 'question',
+    title: 'Neuer Schritt',
+    ansageText: '',
+    format: 'synthetic',
+    hasOptions: true,
+    inputMode: 'keypress',
+    options: [{ key: '1', label: target.title, targetNodeId: target.id, aiKeywords: [] }],
+    order: target.order,
+  };
+
+  // Re-parent: target becomes child of newNode
+  const newNodes = nodes.map(n => {
+    if (n.id === target.id) {
+      return { ...n, parentId: newNode.id };
+    }
+    return n;
+  });
+
+  // Update parent's options to point to newNode instead of target
+  const updatedNodes = newNodes.map(n => {
+    if (n.id === target.parentId) {
+      return {
+        ...n,
+        options: n.options.map(o =>
+          o.targetNodeId === targetNodeId ? { ...o, targetNodeId: newNode.id } : o
+        ),
+      };
+    }
+    return n;
+  });
+
+  return { newNodes: [...updatedNodes, newNode], insertedNode: newNode };
+}
+
 export function getChildNodes(nodes: AssistantNode[], parentId: string): AssistantNode[] {
   return nodes.filter(n => n.parentId === parentId).sort((a, b) => a.order - b.order);
 }
