@@ -37,17 +37,41 @@ interface TreeLayout {
   children: TreeLayout[];
 }
 
-const NODE_WIDTH = 240;
-const NODE_MIN_HEIGHT = 100;
-const NODE_GAP_X = 24;
-const NODE_GAP_Y = 50;
+const NODE_WIDTH = 280;
+const NODE_MIN_HEIGHT = 110;
+const NODE_GAP_X = 28;
+const NODE_GAP_Y = 55;
+const CHARS_PER_LINE = 38;
 
 function estimateNodeHeight(node: AssistantNode): number {
-  const textLen = node.ansageText.length;
-  const lines = Math.ceil(textLen / 35) + 1; // rough chars per line
+  // Header ~28px, title ~22px, base padding ~30px
+  let h = 80;
+
+  // Main text
+  if (node.ansageText) {
+    const textLines = Math.ceil(node.ansageText.length / CHARS_PER_LINE);
+    h += textLines * 14 + 6;
+  }
+
+  // Translations (title + text per language)
+  const localizedTexts = node.localizedAnsageTexts || {};
+  const localizedTitles = node.localizedTitles || {};
+  const langs = new Set([...Object.keys(localizedTexts), ...Object.keys(localizedTitles)]);
+  for (const lang of langs) {
+    h += 20; // lang header
+    const lt = localizedTitles[lang];
+    if (lt) h += 16;
+    const txt = localizedTexts[lang];
+    if (txt) {
+      h += Math.ceil(txt.length / CHARS_PER_LINE) * 13 + 4;
+    }
+  }
+
+  // Tags & info row
   const extraLines = (node.tag ? 1 : 0) + (node.forwardNumber ? 1 : 0) + (node.hasOptions ? 1 : 0) + (node.isImportant ? 1 : 0);
-  const langCount = Object.keys(node.localizedTitles || {}).length;
-  return Math.max(NODE_MIN_HEIGHT, 70 + lines * 13 + extraLines * 18 + langCount * 14);
+  if (extraLines > 0) h += 22;
+
+  return Math.max(NODE_MIN_HEIGHT, h);
 }
 
 function calculateLayout(
@@ -125,12 +149,16 @@ function FlowchartNode({
   const langCount = Object.keys(node.localizedTitles || {}).length;
   const inputMode = node.inputMode || 'keypress';
 
+  const localizedTexts = node.localizedAnsageTexts || {};
+  const localizedTitles = node.localizedTitles || {};
+  const translatedLangs = [...new Set([...Object.keys(localizedTexts), ...Object.keys(localizedTitles)])];
+
   return (
     <g>
       <foreignObject x={layout.x} y={layout.y} width={NODE_WIDTH} height={layout.height}>
         <div
           className={cn(
-            'h-full rounded-xl border-2 p-2.5 cursor-pointer transition-all duration-150 shadow-sm relative',
+            'h-full rounded-xl border-2 p-2.5 cursor-pointer transition-all duration-150 shadow-sm relative overflow-hidden',
             styles.bg,
             styles.border,
             node.isImportant && 'ring-2 ring-yellow-400 ring-offset-1',
@@ -183,6 +211,27 @@ function FlowchartNode({
           {node.ansageText && (
             <div className="text-[10px] text-muted-foreground leading-snug mb-1 whitespace-pre-wrap break-words">
               „{node.ansageText}"
+            </div>
+          )}
+
+          {/* Translations */}
+          {translatedLangs.length > 0 && (
+            <div className="mt-1 space-y-1 border-t border-border/40 pt-1">
+              {translatedLangs.map(lang => (
+                <div key={lang} className="text-[9px]">
+                  <span className="inline-block uppercase font-bold text-muted-foreground bg-muted/60 rounded px-1 py-0.5 mr-1">
+                    {lang}
+                  </span>
+                  {localizedTitles[lang] && (
+                    <span className="font-semibold text-foreground">{localizedTitles[lang]}</span>
+                  )}
+                  {localizedTexts[lang] && (
+                    <span className="block text-muted-foreground leading-snug mt-0.5 whitespace-pre-wrap break-words pl-1">
+                      „{localizedTexts[lang]}"
+                    </span>
+                  )}
+                </div>
+              ))}
             </div>
           )}
 
