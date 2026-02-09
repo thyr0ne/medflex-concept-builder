@@ -1,5 +1,5 @@
 import { useAssistantConfig } from '@/hooks/useAssistantConfig';
-import FlowchartView, { FlowchartContent } from '@/components/FlowchartView';
+import FlowchartView from '@/components/FlowchartView';
 import NodeEditor from '@/components/NodeEditor';
 import { downloadPDF, downloadText, downloadJSON } from '@/lib/export-utils';
 import { Button } from '@/components/ui/button';
@@ -27,17 +27,14 @@ const Index = () => {
 
   const [editorOpen, setEditorOpen] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
-  const pdfExportRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleExportPDF = async () => {
     setIsExporting(true);
-    await new Promise(resolve => setTimeout(resolve, 200));
-    
-    if (pdfExportRef.current) {
-      await downloadPDF(config, pdfExportRef.current);
+    try {
+      await downloadPDF(config);
       toast.success('PDF wurde exportiert');
-    } else {
+    } catch {
       toast.error('PDF Export fehlgeschlagen');
     }
     setIsExporting(false);
@@ -82,20 +79,6 @@ const Index = () => {
 
   return (
     <div className="flex h-screen flex-col bg-background">
-      {/* Hidden PDF export container */}
-      {isExporting && (
-        <div className="fixed left-[-9999px] top-0">
-          <FlowchartContent
-            ref={pdfExportRef}
-            nodes={config.nodes}
-            selectedNodeId={null}
-            onSelectNode={() => {}}
-            onAddChild={() => {}}
-            isPdfMode={true}
-            praxisName={config.praxisName}
-          />
-        </div>
-      )}
 
       {/* Hidden file input */}
       <input
