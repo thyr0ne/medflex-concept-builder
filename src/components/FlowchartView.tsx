@@ -155,10 +155,10 @@ function FlowchartNode({
 
   return (
     <g>
-      <foreignObject x={layout.x} y={layout.y} width={NODE_WIDTH} height={layout.height}>
+      <foreignObject x={layout.x} y={layout.y} width={NODE_WIDTH} height={layout.height} overflow="visible">
         <div
           className={cn(
-            'h-full rounded-xl border-2 p-2.5 cursor-pointer transition-all duration-150 shadow-sm relative overflow-hidden',
+            'h-full rounded-xl border-2 p-2.5 cursor-pointer transition-all duration-150 shadow-sm relative',
             styles.bg,
             styles.border,
             node.isImportant && 'ring-2 ring-yellow-400 ring-offset-1',
