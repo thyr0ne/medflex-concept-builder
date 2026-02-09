@@ -1,7 +1,6 @@
 import { AssistantConfig, AssistantNode } from '@/types/assistant';
 import { getChildNodes, getRootNode, getNodeTypeLabel } from '@/lib/assistant-utils';
 import jsPDF from 'jspdf';
-import html2canvas from 'html2canvas';
 
 // Inline color styles for PDF (no Tailwind in html2canvas)
 const NODE_COLORS: Record<string, { bg: string; border: string; text: string }> = {
@@ -138,307 +137,268 @@ export function downloadJSON(config: AssistantConfig) {
   URL.revokeObjectURL(url);
 }
 
-// --- PDF Export: Pure HTML renderer with inline styles ---
+// --- PDF Export: Pure jsPDF renderer (no html2canvas) ---
 
-const PDF_NODE_WIDTH = 340;
-const PDF_CHARS_PER_LINE = 48;
-const PDF_NODE_GAP_X = 32;
-const PDF_NODE_GAP_Y = 55;
-const PDF_NODE_MIN_HEIGHT = 110;
+const PDF_MARGIN = 20; // mm
+const PDF_NODE_W = 70; // mm
+const PDF_NODE_GAP_X = 10; // mm
+const PDF_NODE_GAP_Y = 15; // mm
+const PDF_FONT_SIZE = 8;
+const PDF_TITLE_SIZE = 10;
+const PDF_HEADER_SIZE = 7;
 
-interface PdfLayout {
+const PDF_COLORS: Record<string, { bg: [number, number, number]; border: [number, number, number]; text: [number, number, number] }> = {
+  greeting: { bg: [232, 240, 254], border: [59, 130, 214], text: [30, 74, 138] },
+  question: { bg: [254, 249, 231], border: [212, 160, 23], text: [107, 78, 10] },
+  action: { bg: [230, 247, 240], border: [58, 157, 114], text: [26, 92, 65] },
+  end: { bg: [252, 232, 232], border: [212, 72, 72], text: [138, 30, 30] },
+  forward: { bg: [243, 232, 252], border: [139, 78, 214], text: [78, 30, 138] },
+};
+
+interface PdfNodeLayout {
   nodeId: string;
   x: number;
   y: number;
-  width: number;
   height: number;
-  children: PdfLayout[];
+  subtreeWidth: number;
+  children: PdfNodeLayout[];
 }
 
-function estimatePdfNodeHeight(node: AssistantNode): number {
-  let h = 80;
-  if (node.ansageText) {
-    h += Math.ceil(node.ansageText.length / PDF_CHARS_PER_LINE) * 14 + 6;
+function wrapText(text: string, maxWidth: number, doc: jsPDF): string[] {
+  const words = text.split(/\s+/);
+  const lines: string[] = [];
+  let current = '';
+  for (const word of words) {
+    const test = current ? `${current} ${word}` : word;
+    if (doc.getTextWidth(test) > maxWidth) {
+      if (current) lines.push(current);
+      current = word;
+    } else {
+      current = test;
+    }
   }
-  const localizedTexts = node.localizedAnsageTexts || {};
-  const localizedTitles = node.localizedTitles || {};
-  const langs = new Set([...Object.keys(localizedTexts), ...Object.keys(localizedTitles)]);
-  for (const lang of langs) {
-    h += 20;
-    if (localizedTitles[lang]) h += 16;
-    const txt = localizedTexts[lang];
-    if (txt) h += Math.ceil(txt.length / PDF_CHARS_PER_LINE) * 13 + 4;
-  }
-  const extraLines = (node.tag ? 1 : 0) + (node.forwardNumber ? 1 : 0) + (node.isImportant ? 1 : 0);
-  if (extraLines > 0) h += 22;
-  if (node.hasOptions && node.options.length > 0) {
-    h += 18 + node.options.length * 16;
-  }
-  return Math.max(PDF_NODE_MIN_HEIGHT, h);
+  if (current) lines.push(current);
+  return lines.length ? lines : [''];
 }
 
-function calcPdfLayout(nodes: AssistantNode[], nodeId: string, startX = 0, yOffset = 0): PdfLayout {
-  const node = nodes.find(n => n.id === nodeId);
-  const nodeHeight = node ? estimatePdfNodeHeight(node) : PDF_NODE_MIN_HEIGHT;
-  if (!node) return { nodeId, x: startX, y: yOffset, width: PDF_NODE_WIDTH, height: nodeHeight, children: [] };
-
-  const children = getChildNodes(nodes, nodeId);
-  if (children.length === 0) {
-    return { nodeId, x: startX, y: yOffset, width: PDF_NODE_WIDTH, height: nodeHeight, children: [] };
-  }
-
-  let currentX = startX;
-  const childLayouts: PdfLayout[] = [];
-  const childY = yOffset + nodeHeight + PDF_NODE_GAP_Y;
-  for (const child of children) {
-    const cl = calcPdfLayout(nodes, child.id, currentX, childY);
-    childLayouts.push(cl);
-    currentX += cl.width + PDF_NODE_GAP_X;
-  }
-
-  const totalChildrenWidth = currentX - startX - PDF_NODE_GAP_X;
-  const width = Math.max(PDF_NODE_WIDTH, totalChildrenWidth);
-  const x = startX + (totalChildrenWidth - PDF_NODE_WIDTH) / 2;
-
-  return { nodeId, x: Math.max(startX, x), y: yOffset, width, height: nodeHeight, children: childLayouts };
-}
-
-function createNodeDiv(node: AssistantNode, layout: PdfLayout, parentNode?: AssistantNode): HTMLDivElement {
-  const colors = NODE_COLORS[node.type] || NODE_COLORS.question;
-  const inputMode = node.inputMode || 'keypress';
-  const div = document.createElement('div');
-  div.style.cssText = `
-    position: absolute; left: ${layout.x}px; top: ${layout.y}px;
-    width: ${PDF_NODE_WIDTH}px; min-height: ${layout.height}px;
-    background: ${colors.bg}; border: 2px solid ${colors.border}; border-radius: 12px;
-    padding: 10px; box-sizing: border-box; font-family: Inter, system-ui, sans-serif;
-    ${node.isImportant ? 'box-shadow: 0 0 0 2px #facc15, 0 0 0 4px #fef08a;' : ''}
-  `;
-
-  // Option badge
-  const optionLabel = parentNode?.options.find(o => o.targetNodeId === node.id)?.label;
-  const optionKey = parentNode?.options.find(o => o.targetNodeId === node.id)?.key;
-  if (optionLabel) {
-    const badge = document.createElement('div');
-    badge.style.cssText = `position: absolute; top: -10px; left: 50%; transform: translateX(-50%);
-      background: #1a1a2e; color: #fff; font-size: 9px; font-weight: 700; padding: 2px 8px;
-      border-radius: 10px; white-space: nowrap;`;
-    badge.textContent = (optionKey && inputMode !== 'ai_keyword' ? `[${optionKey}] ` : '') + optionLabel;
-    div.appendChild(badge);
-  }
-
-  // Header
-  const header = document.createElement('div');
-  header.style.cssText = `font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: ${colors.text}; margin-bottom: 4px;`;
-  header.textContent = getNodeTypeLabel(node.type);
-  div.appendChild(header);
-
+function measureNodeHeight(node: AssistantNode, doc: jsPDF): number {
+  const contentWidth = PDF_NODE_W - 6;
+  let h = 12; // header + title baseline
+  
   // Title
-  const title = document.createElement('div');
-  title.style.cssText = `font-size: 14px; font-weight: 700; color: #1a1a2e; margin-bottom: 4px; line-height: 1.3;`;
-  title.textContent = node.title;
-  div.appendChild(title);
+  doc.setFontSize(PDF_TITLE_SIZE);
+  const titleLines = wrapText(node.title, contentWidth, doc);
+  h += titleLines.length * 4;
 
   // Ansage text
   if (node.ansageText) {
-    const text = document.createElement('div');
-    text.style.cssText = `font-size: 10px; color: #666; line-height: 1.4; margin-bottom: 4px; white-space: pre-wrap; word-break: break-word;`;
-    text.textContent = `„${node.ansageText}"`;
-    div.appendChild(text);
+    doc.setFontSize(PDF_FONT_SIZE);
+    const lines = wrapText(node.ansageText, contentWidth, doc);
+    h += lines.length * 3.2 + 2;
   }
-
-  // Translations
-  const localizedTexts = node.localizedAnsageTexts || {};
-  const localizedTitles = node.localizedTitles || {};
-  const langs = [...new Set([...Object.keys(localizedTexts), ...Object.keys(localizedTitles)])];
-  if (langs.length > 0) {
-    const transSection = document.createElement('div');
-    transSection.style.cssText = `margin-top: 4px; padding-top: 4px; border-top: 1px solid ${colors.border}44;`;
-    for (const lang of langs) {
-      const langDiv = document.createElement('div');
-      langDiv.style.cssText = `font-size: 9px; margin-bottom: 2px;`;
-      const badge = document.createElement('span');
-      badge.style.cssText = `display: inline-block; background: #e2e8f0; color: #475569; font-weight: 700; font-size: 8px; text-transform: uppercase; padding: 1px 4px; border-radius: 3px; margin-right: 4px;`;
-      badge.textContent = lang;
-      langDiv.appendChild(badge);
-      if (localizedTitles[lang]) {
-        const t = document.createElement('span');
-        t.style.cssText = `font-weight: 600; color: #1a1a2e;`;
-        t.textContent = localizedTitles[lang];
-        langDiv.appendChild(t);
-      }
-      if (localizedTexts[lang]) {
-        const t = document.createElement('div');
-        t.style.cssText = `color: #666; line-height: 1.3; margin-top: 2px; padding-left: 4px; white-space: pre-wrap; word-break: break-word;`;
-        t.textContent = `„${localizedTexts[lang]}"`;
-        langDiv.appendChild(t);
-      }
-      transSection.appendChild(langDiv);
-    }
-    div.appendChild(transSection);
-  }
-
-  // Tags
-  const tagsDiv = document.createElement('div');
-  tagsDiv.style.cssText = `display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px;`;
-  if (node.tag) {
-    const tag = document.createElement('span');
-    tag.style.cssText = `font-size: 9px; background: #e0f2fe; color: #0369a1; padding: 2px 6px; border-radius: 4px;`;
-    tag.textContent = `Tag: ${node.tag}`;
-    tagsDiv.appendChild(tag);
-  }
-  if (node.type === 'forward' && node.forwardNumber) {
-    const fw = document.createElement('span');
-    fw.style.cssText = `font-size: 9px; background: #f1f5f9; color: #475569; padding: 2px 6px; border-radius: 4px;`;
-    fw.textContent = `→ ${node.forwardNumber}`;
-    tagsDiv.appendChild(fw);
-  }
-  if (node.isImportant) {
-    const imp = document.createElement('span');
-    imp.style.cssText = `font-size: 9px; background: #fef9c3; color: #854d0e; padding: 2px 6px; border-radius: 4px; font-weight: 700;`;
-    imp.textContent = `⚠ WICHTIG`;
-    tagsDiv.appendChild(imp);
-  }
-  if (tagsDiv.children.length > 0) div.appendChild(tagsDiv);
 
   // Options
   if (node.hasOptions && node.options.length > 0) {
-    const optSection = document.createElement('div');
-    optSection.style.cssText = `margin-top: 6px; padding-top: 6px; border-top: 1px solid ${colors.border}44;`;
-    const optHeader = document.createElement('div');
-    optHeader.style.cssText = `font-size: 9px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px;`;
-    optHeader.textContent = `Optionen${inputMode !== 'keypress' ? ' (AI)' : ''}`;
-    optSection.appendChild(optHeader);
-    for (const opt of node.options) {
-      const optRow = document.createElement('div');
-      optRow.style.cssText = `display: flex; align-items: center; gap: 6px; font-size: 10px; color: #1a1a2e; margin-top: 2px;`;
-      if (inputMode !== 'ai_keyword') {
-        const keyBadge = document.createElement('span');
-        keyBadge.style.cssText = `display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; background: #e2e8f0; color: #475569; font-weight: 700; font-size: 9px; border-radius: 4px; flex-shrink: 0;`;
-        keyBadge.textContent = opt.key;
-        optRow.appendChild(keyBadge);
-      }
-      const label = document.createElement('span');
-      label.textContent = opt.label;
-      optRow.appendChild(label);
-      if (opt.aiKeywords && opt.aiKeywords.length > 0) {
-        const kw = document.createElement('span');
-        kw.style.cssText = `font-size: 8px; color: #94a3b8; margin-left: auto; flex-shrink: 0;`;
-        kw.textContent = `🔑 ${opt.aiKeywords.slice(0, 2).join(', ')}`;
-        optRow.appendChild(kw);
-      }
-      optSection.appendChild(optRow);
-    }
-    div.appendChild(optSection);
+    h += 4 + node.options.length * 3.5;
   }
 
-  return div;
+  // Tags / forward
+  if (node.tag || node.forwardNumber || node.isImportant) h += 5;
+
+  return Math.max(20, h + 3);
 }
 
-function buildPdfDom(nodes: AssistantNode[], layout: PdfLayout, container: HTMLDivElement, parentNode?: AssistantNode) {
+function layoutPdfTree(nodes: AssistantNode[], nodeId: string, x: number, y: number, doc: jsPDF): PdfNodeLayout {
+  const node = nodes.find(n => n.id === nodeId);
+  const height = node ? measureNodeHeight(node, doc) : 20;
+  const children = node ? getChildNodes(nodes, nodeId) : [];
+
+  if (children.length === 0) {
+    return { nodeId, x, y, height, subtreeWidth: PDF_NODE_W, children: [] };
+  }
+
+  let currentX = x;
+  const childLayouts: PdfNodeLayout[] = [];
+  const childY = y + height + PDF_NODE_GAP_Y;
+  for (const child of children) {
+    const cl = layoutPdfTree(nodes, child.id, currentX, childY, doc);
+    childLayouts.push(cl);
+    currentX += cl.subtreeWidth + PDF_NODE_GAP_X;
+  }
+
+  const totalWidth = currentX - x - PDF_NODE_GAP_X;
+  const subtreeWidth = Math.max(PDF_NODE_W, totalWidth);
+  // Center this node over its children
+  const centerX = x + (totalWidth - PDF_NODE_W) / 2;
+
+  return { nodeId, x: Math.max(x, centerX), y, height, subtreeWidth, children: childLayouts };
+}
+
+function drawNode(doc: jsPDF, node: AssistantNode, layout: PdfNodeLayout, parentNode?: AssistantNode) {
+  const colors = PDF_COLORS[node.type] || PDF_COLORS.question;
+  const inputMode = node.inputMode || 'keypress';
+
+  // Background
+  doc.setFillColor(...colors.bg);
+  doc.roundedRect(layout.x, layout.y, PDF_NODE_W, layout.height, 2, 2, 'F');
+  // Border
+  doc.setDrawColor(...colors.border);
+  doc.setLineWidth(0.4);
+  doc.roundedRect(layout.x, layout.y, PDF_NODE_W, layout.height, 2, 2, 'S');
+
+  // Important ring
+  if (node.isImportant) {
+    doc.setDrawColor(250, 204, 21);
+    doc.setLineWidth(0.8);
+    doc.roundedRect(layout.x - 1, layout.y - 1, PDF_NODE_W + 2, layout.height + 2, 3, 3, 'S');
+  }
+
+  // Option badge from parent
+  const optionLabel = parentNode?.options.find(o => o.targetNodeId === node.id)?.label;
+  const optionKey = parentNode?.options.find(o => o.targetNodeId === node.id)?.key;
+  if (optionLabel) {
+    const badgeText = (optionKey && inputMode !== 'ai_keyword' ? `[${optionKey}] ` : '') + optionLabel;
+    doc.setFontSize(6);
+    const bw = doc.getTextWidth(badgeText) + 4;
+    const bx = layout.x + PDF_NODE_W / 2 - bw / 2;
+    doc.setFillColor(26, 26, 46);
+    doc.roundedRect(bx, layout.y - 3, bw, 5, 1.5, 1.5, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.text(badgeText, layout.x + PDF_NODE_W / 2, layout.y - 0.5, { align: 'center' });
+  }
+
+  let curY = layout.y + 4;
+  const contentWidth = PDF_NODE_W - 6;
+  const lx = layout.x + 3;
+
+  // Type header
+  doc.setFontSize(PDF_HEADER_SIZE);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...colors.text);
+  doc.text(getNodeTypeLabel(node.type).toUpperCase(), lx, curY);
+  curY += 4;
+
+  // Title
+  doc.setFontSize(PDF_TITLE_SIZE);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(26, 26, 46);
+  const titleLines = wrapText(node.title, contentWidth, doc);
+  for (const line of titleLines) {
+    doc.text(line, lx, curY);
+    curY += 4;
+  }
+
+  // Ansage
+  if (node.ansageText) {
+    curY += 1;
+    doc.setFontSize(PDF_FONT_SIZE);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100, 100, 100);
+    const lines = wrapText(`„${node.ansageText}"`, contentWidth, doc);
+    for (const line of lines) {
+      doc.text(line, lx, curY);
+      curY += 3.2;
+    }
+  }
+
+  // Options
+  if (node.hasOptions && node.options.length > 0) {
+    curY += 2;
+    doc.setFontSize(6);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(148, 163, 184);
+    doc.text('OPTIONEN', lx, curY);
+    curY += 3;
+    doc.setFontSize(PDF_FONT_SIZE);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(26, 26, 46);
+    for (const opt of node.options) {
+      const prefix = inputMode !== 'ai_keyword' ? `[${opt.key}] ` : '';
+      doc.text(`${prefix}${opt.label}`, lx + 1, curY);
+      curY += 3.5;
+    }
+  }
+
+  // Tags
+  if (node.tag) {
+    curY += 1;
+    doc.setFontSize(6);
+    doc.setTextColor(3, 105, 161);
+    doc.text(`Tag: ${node.tag}`, lx, curY);
+    curY += 3;
+  }
+  if (node.type === 'forward' && node.forwardNumber) {
+    doc.setFontSize(6);
+    doc.setTextColor(71, 85, 105);
+    doc.text(`→ ${node.forwardNumber}`, lx, curY);
+  }
+}
+
+function drawTree(doc: jsPDF, nodes: AssistantNode[], layout: PdfNodeLayout, parentNode?: AssistantNode) {
   const node = nodes.find(n => n.id === layout.nodeId);
   if (!node) return;
-  container.appendChild(createNodeDiv(node, layout, parentNode));
 
-  // Connection lines (as absolutely positioned divs)
+  drawNode(doc, node, layout, parentNode);
+
+  // Draw connection lines to children
+  doc.setDrawColor(203, 213, 225);
+  doc.setLineWidth(0.3);
   for (const child of layout.children) {
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    const parentCX = layout.x + PDF_NODE_WIDTH / 2;
-    const parentBY = layout.y + layout.height;
-    const childCX = child.x + PDF_NODE_WIDTH / 2;
-    const childTY = child.y;
-    const minX = Math.min(parentCX, childCX) - 5;
-    const maxX = Math.max(parentCX, childCX) + 5;
-    svg.setAttribute('style', `position: absolute; left: ${minX}px; top: ${parentBY}px; overflow: visible; pointer-events: none;`);
-    svg.setAttribute('width', `${maxX - minX + 10}`);
-    svg.setAttribute('height', `${childTY - parentBY + 10}`);
-    const midY = (childTY - parentBY) / 2;
-    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    path.setAttribute('d', `M ${parentCX - minX} 0 C ${parentCX - minX} ${midY}, ${childCX - minX} ${midY}, ${childCX - minX} ${childTY - parentBY}`);
-    path.setAttribute('fill', 'none');
-    path.setAttribute('stroke', '#cbd5e1');
-    path.setAttribute('stroke-width', '2');
-    svg.appendChild(path);
-    container.appendChild(svg);
-
-    buildPdfDom(nodes, child, container, node);
+    const fromX = layout.x + PDF_NODE_W / 2;
+    const fromY = layout.y + layout.height;
+    const toX = child.x + PDF_NODE_W / 2;
+    const toY = child.y;
+    // Simple straight line
+    doc.line(fromX, fromY, toX, toY);
+    drawTree(doc, nodes, child, node);
   }
-}
-
-function getBounds(layout: PdfLayout): { maxX: number; maxY: number } {
-  let maxX = layout.x + PDF_NODE_WIDTH;
-  let maxY = layout.y + layout.height;
-  for (const child of layout.children) {
-    const cb = getBounds(child);
-    maxX = Math.max(maxX, cb.maxX);
-    maxY = Math.max(maxY, cb.maxY);
-  }
-  return { maxX, maxY };
 }
 
 export async function downloadPDF(config: AssistantConfig) {
   const root = getRootNode(config.nodes);
-  if (!root) return;
+  if (!root) throw new Error('No root node found');
 
-  const layout = calcPdfLayout(config.nodes, root.id, 50, 50);
+  // Create a temporary doc to measure text
+  const tempDoc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const layout = layoutPdfTree(config.nodes, root.id, PDF_MARGIN, PDF_MARGIN + 12, tempDoc);
+
+  // Calculate total bounds
+  function getBounds(l: PdfNodeLayout): { maxX: number; maxY: number } {
+    let maxX = l.x + PDF_NODE_W;
+    let maxY = l.y + l.height;
+    for (const c of l.children) {
+      const cb = getBounds(c);
+      maxX = Math.max(maxX, cb.maxX);
+      maxY = Math.max(maxY, cb.maxY);
+    }
+    return { maxX, maxY };
+  }
+
   const bounds = getBounds(layout);
+  const pageW = Math.max(210, bounds.maxX + PDF_MARGIN);
+  const pageH = Math.max(297, bounds.maxY + PDF_MARGIN);
 
-  // Create off-screen container with inline styles
-  const container = document.createElement('div');
-  container.style.cssText = `
-    position: fixed; left: -9999px; top: 0; z-index: -1;
-    width: ${bounds.maxX + 60}px; height: ${bounds.maxY + 40}px;
-    background: #ffffff; overflow: visible; font-family: Inter, system-ui, sans-serif;
-  `;
+  const doc = new jsPDF({
+    orientation: pageW > pageH ? 'landscape' : 'portrait',
+    unit: 'mm',
+    format: [pageW, pageH],
+  });
+
+  // Re-layout with final doc for accurate measurements  
+  const finalLayout = layoutPdfTree(config.nodes, root.id, PDF_MARGIN, PDF_MARGIN + 12, doc);
 
   // Header
-  const header = document.createElement('div');
-  header.style.cssText = `position: absolute; left: 14px; top: 10px;`;
-  const h1 = document.createElement('div');
-  h1.style.cssText = `font-size: 18px; font-weight: 700; color: #1a1a2e;`;
-  h1.textContent = `Telefonassistent: ${config.praxisName}`;
-  const date = document.createElement('div');
-  date.style.cssText = `font-size: 11px; color: #94a3b8;`;
-  date.textContent = `Stand: ${new Date(config.updatedAt).toLocaleDateString('de-DE')}`;
-  header.appendChild(h1);
-  header.appendChild(date);
-  container.appendChild(header);
+  doc.setFontSize(14);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(26, 26, 46);
+  doc.text(`Telefonassistent: ${config.praxisName}`, PDF_MARGIN, PDF_MARGIN + 4);
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(148, 163, 184);
+  doc.text(`Stand: ${new Date(config.updatedAt).toLocaleDateString('de-DE')}`, PDF_MARGIN, PDF_MARGIN + 8);
 
-  buildPdfDom(config.nodes, layout, container);
+  // Draw tree
+  drawTree(doc, config.nodes, finalLayout);
 
-  document.body.appendChild(container);
-
-  try {
-    await new Promise(r => setTimeout(r, 100));
-    // Move to visible position briefly for html2canvas (it needs visible elements)
-    container.style.left = '0px';
-    container.style.zIndex = '99999';
-    container.style.opacity = '0';
-    await new Promise(r => setTimeout(r, 200));
-    const canvas = await html2canvas(container, {
-      scale: 2,
-      backgroundColor: '#ffffff',
-      logging: false,
-      useCORS: true,
-      allowTaint: true,
-      foreignObjectRendering: false,
-    });
-
-    const imgData = canvas.toDataURL('image/png');
-    const pdfW = (canvas.width / 2) * 0.264583;
-    const pdfH = (canvas.height / 2) * 0.264583;
-
-    const doc = new jsPDF({
-      orientation: pdfW > pdfH ? 'landscape' : 'portrait',
-      unit: 'mm',
-      format: [Math.max(pdfW, 210), Math.max(pdfH, 297)],
-    });
-
-    doc.addImage(imgData, 'PNG', 0, 0, pdfW, pdfH);
-    doc.save(`TA_${config.praxisName.replace(/\s+/g, '_')}.pdf`);
-  } catch (error) {
-    console.error('PDF export failed:', error);
-  } finally {
-    document.body.removeChild(container);
-  }
+  doc.save(`TA_${config.praxisName.replace(/\s+/g, '_')}.pdf`);
 }
