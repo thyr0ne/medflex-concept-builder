@@ -1,11 +1,13 @@
 import { useAssistantConfig } from '@/hooks/useAssistantConfig';
-import TreeView from '@/components/TreeView';
+import FlowchartView from '@/components/FlowchartView';
 import NodeEditor from '@/components/NodeEditor';
 import { downloadPDF, downloadText } from '@/lib/export-utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { FileText, Download, RotateCcw, Phone } from 'lucide-react';
+import { FileText, Download, RotateCcw, Phone, PanelRightClose, PanelRight } from 'lucide-react';
 import { toast } from 'sonner';
+import { useState } from 'react';
+import { cn } from '@/lib/utils';
 
 const Index = () => {
   const {
@@ -19,6 +21,8 @@ const Index = () => {
     deleteNode,
     resetConfig,
   } = useAssistantConfig();
+
+  const [editorOpen, setEditorOpen] = useState(true);
 
   const handleExportPDF = () => {
     downloadPDF(config);
@@ -38,9 +42,9 @@ const Index = () => {
   };
 
   return (
-    <div className="flex h-screen flex-col">
+    <div className="flex h-screen flex-col bg-background">
       {/* Top Bar */}
-      <header className="flex items-center justify-between border-b bg-card px-4 py-3">
+      <header className="flex items-center justify-between border-b bg-card px-4 py-3 shrink-0">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 text-primary">
             <Phone className="w-5 h-5" />
@@ -64,43 +68,76 @@ const Index = () => {
           <Button variant="ghost" size="sm" onClick={handleReset}>
             <RotateCcw className="w-4 h-4" />
           </Button>
+          <div className="w-px h-6 bg-border mx-1" />
+          <Button variant="ghost" size="sm" onClick={() => setEditorOpen(!editorOpen)}>
+            {editorOpen ? <PanelRightClose className="w-4 h-4" /> : <PanelRight className="w-4 h-4" />}
+          </Button>
         </div>
       </header>
 
       {/* Main Content */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Sidebar - Tree */}
-        <aside className="w-72 border-r bg-card overflow-y-auto shrink-0">
-          <div className="px-3 py-2 border-b">
-            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Ablaufstruktur</h3>
-          </div>
-          <TreeView
+        {/* Flowchart Canvas */}
+        <main className="flex-1 overflow-hidden">
+          <FlowchartView
             nodes={config.nodes}
             selectedNodeId={selectedNodeId}
             onSelectNode={setSelectedNodeId}
             onAddChild={addChildNode}
           />
-        </aside>
+        </main>
 
-        {/* Editor */}
-        <main className="flex-1 overflow-y-auto p-6">
-          {selectedNode ? (
-            <div className="max-w-2xl">
-              <NodeEditor
-                node={selectedNode}
-                allNodes={config.nodes}
-                onUpdate={updateNode}
-                onDelete={deleteNode}
-                onAddChild={addChildNode}
-              />
-            </div>
-          ) : (
-            <div className="flex items-center justify-center h-full text-muted-foreground">
-              Wählen Sie einen Knoten aus der Baumstruktur
+        {/* Editor Panel */}
+        <aside
+          className={cn(
+            'border-l bg-card overflow-y-auto transition-all duration-300 shrink-0',
+            editorOpen ? 'w-96' : 'w-0 border-l-0'
+          )}
+        >
+          {editorOpen && (
+            <div className="p-5">
+              {selectedNode ? (
+                <NodeEditor
+                  node={selectedNode}
+                  allNodes={config.nodes}
+                  onUpdate={updateNode}
+                  onDelete={deleteNode}
+                  onAddChild={addChildNode}
+                />
+              ) : (
+                <div className="flex flex-col items-center justify-center h-64 text-muted-foreground text-center">
+                  <p className="text-sm">Wählen Sie einen Knoten im Diagramm aus, um ihn zu bearbeiten</p>
+                </div>
+              )}
             </div>
           )}
-        </main>
+        </aside>
       </div>
+
+      {/* Legend */}
+      <footer className="border-t bg-card px-4 py-2 flex items-center gap-6 text-xs shrink-0">
+        <span className="text-muted-foreground font-medium">Legende:</span>
+        <div className="flex items-center gap-1.5">
+          <div className="w-3 h-3 rounded bg-legend-greeting" />
+          <span>Begrüßung</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="w-3 h-3 rounded bg-legend-question" />
+          <span>Frage</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="w-3 h-3 rounded bg-legend-action" />
+          <span>Aktion</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="w-3 h-3 rounded bg-legend-forward" />
+          <span>Weiterleitung</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="w-3 h-3 rounded bg-legend-end" />
+          <span>Schluss</span>
+        </div>
+      </footer>
     </div>
   );
 };

@@ -57,6 +57,40 @@ export default {
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
         },
+        node: {
+          greeting: {
+            DEFAULT: "hsl(var(--node-greeting-bg))",
+            border: "hsl(var(--node-greeting-border))",
+            foreground: "hsl(var(--node-greeting-text))",
+          },
+          question: {
+            DEFAULT: "hsl(var(--node-question-bg))",
+            border: "hsl(var(--node-question-border))",
+            foreground: "hsl(var(--node-question-text))",
+          },
+          action: {
+            DEFAULT: "hsl(var(--node-action-bg))",
+            border: "hsl(var(--node-action-border))",
+            foreground: "hsl(var(--node-action-text))",
+          },
+          end: {
+            DEFAULT: "hsl(var(--node-end-bg))",
+            border: "hsl(var(--node-end-border))",
+            foreground: "hsl(var(--node-end-text))",
+          },
+          forward: {
+            DEFAULT: "hsl(var(--node-forward-bg))",
+            border: "hsl(var(--node-forward-border))",
+            foreground: "hsl(var(--node-forward-text))",
+          },
+        },
+        legend: {
+          greeting: "hsl(var(--legend-greeting))",
+          question: "hsl(var(--legend-question))",
+          action: "hsl(var(--legend-action))",
+          forward: "hsl(var(--legend-forward))",
+          end: "hsl(var(--legend-end))",
+        },
       },
       borderRadius: {
         lg: "var(--radius)",
