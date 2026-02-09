@@ -37,11 +37,11 @@ interface TreeLayout {
   children: TreeLayout[];
 }
 
-const NODE_WIDTH = 280;
+const NODE_WIDTH = 340;
 const NODE_MIN_HEIGHT = 110;
-const NODE_GAP_X = 28;
+const NODE_GAP_X = 32;
 const NODE_GAP_Y = 55;
-const CHARS_PER_LINE = 38;
+const CHARS_PER_LINE = 48;
 
 function estimateNodeHeight(node: AssistantNode): number {
   // Header ~28px, title ~22px, base padding ~30px
@@ -68,8 +68,13 @@ function estimateNodeHeight(node: AssistantNode): number {
   }
 
   // Tags & info row
-  const extraLines = (node.tag ? 1 : 0) + (node.forwardNumber ? 1 : 0) + (node.hasOptions ? 1 : 0) + (node.isImportant ? 1 : 0);
+  const extraLines = (node.tag ? 1 : 0) + (node.forwardNumber ? 1 : 0) + (node.isImportant ? 1 : 0);
   if (extraLines > 0) h += 22;
+
+  // Options list
+  if (node.hasOptions && node.options.length > 0) {
+    h += 18 + node.options.length * 16;
+  }
 
   return Math.max(NODE_MIN_HEIGHT, h);
 }
@@ -252,18 +257,36 @@ function FlowchartNode({
                 ⏱ {node.forwardRetrieveAfterSec}s
               </span>
             )}
-            {node.hasOptions && node.options.length > 0 && (
-              <span className="text-[9px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
-                {node.options.length} Opt.
-                {inputMode !== 'keypress' && ' (AI)'}
-              </span>
-            )}
             {node.isImportant && (
               <span className="text-[9px] px-1.5 py-0.5 rounded bg-yellow-100 text-yellow-800 font-bold">
                 ⚠ WICHTIG
               </span>
             )}
           </div>
+
+          {/* Options list */}
+          {node.hasOptions && node.options.length > 0 && (
+            <div className="mt-1.5 border-t border-border/40 pt-1.5 space-y-0.5">
+              <div className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wide mb-0.5">
+                Optionen {inputMode !== 'keypress' && '(AI)'}
+              </div>
+              {node.options.map((opt, i) => (
+                <div key={i} className="flex items-center gap-1.5 text-[10px] text-foreground">
+                  {inputMode !== 'ai_keyword' && (
+                    <span className="inline-flex items-center justify-center w-4 h-4 rounded bg-muted text-muted-foreground font-bold text-[9px] shrink-0">
+                      {opt.key}
+                    </span>
+                  )}
+                  <span className="truncate">{opt.label}</span>
+                  {opt.aiKeywords && opt.aiKeywords.length > 0 && (
+                    <span className="text-[8px] text-muted-foreground ml-auto shrink-0">
+                      🔑 {opt.aiKeywords.slice(0, 2).join(', ')}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* Buttons */}
           {!isPdfMode && (
