@@ -386,7 +386,7 @@ export async function downloadPDF(config: AssistantConfig) {
   // Create off-screen container with inline styles
   const container = document.createElement('div');
   container.style.cssText = `
-    position: fixed; left: 0; top: 0; z-index: 99999;
+    position: fixed; left: -9999px; top: 0; z-index: -1;
     width: ${bounds.maxX + 60}px; height: ${bounds.maxY + 40}px;
     background: #ffffff; overflow: visible; font-family: Inter, system-ui, sans-serif;
   `;
@@ -410,11 +410,18 @@ export async function downloadPDF(config: AssistantConfig) {
 
   try {
     await new Promise(r => setTimeout(r, 100));
+    // Move to visible position briefly for html2canvas (it needs visible elements)
+    container.style.left = '0px';
+    container.style.zIndex = '99999';
+    container.style.opacity = '0';
+    await new Promise(r => setTimeout(r, 200));
     const canvas = await html2canvas(container, {
       scale: 2,
       backgroundColor: '#ffffff',
       logging: false,
       useCORS: true,
+      allowTaint: true,
+      foreignObjectRendering: false,
     });
 
     const imgData = canvas.toDataURL('image/png');

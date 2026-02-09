@@ -44,8 +44,8 @@ const NODE_GAP_Y = 55;
 const CHARS_PER_LINE = 48;
 
 function estimateNodeHeight(node: AssistantNode): number {
-  // Header ~28px, title ~22px, base padding ~30px
-  let h = 80;
+  // Header ~28px, title ~22px, base padding ~40px
+  let h = 95;
 
   // Main text
   if (node.ansageText) {
@@ -160,10 +160,10 @@ function FlowchartNode({
 
   return (
     <g>
-      <foreignObject x={layout.x} y={layout.y} width={NODE_WIDTH} height={layout.height} overflow="visible">
+      <foreignObject x={layout.x} y={layout.y} width={NODE_WIDTH} height={layout.height + 60} overflow="visible">
         <div
           className={cn(
-            'h-full rounded-xl border-2 p-2.5 cursor-pointer transition-all duration-150 shadow-sm relative',
+            'rounded-xl border-2 p-2.5 cursor-pointer transition-all duration-150 shadow-sm relative',
             styles.bg,
             styles.border,
             node.isImportant && 'ring-2 ring-yellow-400 ring-offset-1',
