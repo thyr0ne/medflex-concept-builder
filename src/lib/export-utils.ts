@@ -1,6 +1,7 @@
 import { AssistantConfig, AssistantNode } from '@/types/assistant';
 import { getChildNodes, getRootNode, getNodeTypeLabel } from '@/lib/assistant-utils';
 import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
 
 function buildTextLines(nodes: AssistantNode[], nodeId: string, depth: number): string[] {
   const node = nodes.find(n => n.id === nodeId);
@@ -44,7 +45,6 @@ function buildTextLines(nodes: AssistantNode[], nodeId: string, depth: number): 
   lines.push(`${indent}---`);
   lines.push('');
 
-  // Recurse children
   const children = getChildNodes(nodes, nodeId);
   children.forEach(child => {
     const optionLabel = node.options.find(o => o.targetNodeId === child.id)?.label;
@@ -87,51 +87,81 @@ export function downloadText(config: AssistantConfig) {
   URL.revokeObjectURL(url);
 }
 
-export function downloadPDF(config: AssistantConfig) {
-  const doc = new jsPDF();
-  const text = exportToText(config);
-  const lines = text.split('\n');
-  
-  doc.setFont('helvetica');
-  doc.setFontSize(16);
-  doc.text(`Telefonassistent: ${config.praxisName}`, 14, 20);
-  
-  doc.setFontSize(9);
-  doc.setTextColor(100);
-  doc.text(`Stand: ${new Date(config.updatedAt).toLocaleDateString('de-DE')}`, 14, 28);
-  
-  doc.setTextColor(0);
-  doc.setFontSize(10);
-  
-  let y = 38;
-  const pageHeight = doc.internal.pageSize.height - 20;
-  
-  for (const line of lines) {
-    if (y > pageHeight) {
-      doc.addPage();
-      y = 20;
-    }
-    
-    if (line.startsWith('#') || line.includes('KONFIGURATION')) {
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(11);
-    } else {
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(10);
-    }
-    
-    // Wrap long lines
-    const maxWidth = 180;
-    const wrappedLines = doc.splitTextToSize(line || ' ', maxWidth);
-    for (const wl of wrappedLines) {
-      if (y > pageHeight) {
-        doc.addPage();
-        y = 20;
-      }
-      doc.text(wl, 14, y);
-      y += 5;
-    }
+export async function downloadPDF(config: AssistantConfig, flowchartElement: HTMLElement | null) {
+  if (!flowchartElement) {
+    console.error('Flowchart element not found');
+    return;
   }
-  
-  doc.save(`TA_${config.praxisName.replace(/\s+/g, '_')}.pdf`);
+
+  try {
+    // Create canvas from the flowchart
+    const canvas = await html2canvas(flowchartElement, {
+      scale: 2,
+      backgroundColor: '#ffffff',
+      logging: false,
+      useCORS: true,
+    });
+
+    const imgData = canvas.toDataURL('image/png');
+    const imgWidth = canvas.width;
+    const imgHeight = canvas.height;
+
+    // Calculate PDF dimensions (A4 landscape or portrait based on aspect ratio)
+    const aspectRatio = imgWidth / imgHeight;
+    let pdfWidth: number;
+    let pdfHeight: number;
+    let orientation: 'portrait' | 'landscape';
+
+    if (aspectRatio > 1.2) {
+      // Wide flowchart - use landscape
+      orientation = 'landscape';
+      pdfWidth = 297; // A4 landscape width in mm
+      pdfHeight = 210; // A4 landscape height in mm
+    } else {
+      // Tall or square - use portrait
+      orientation = 'portrait';
+      pdfWidth = 210; // A4 portrait width in mm
+      pdfHeight = 297; // A4 portrait height in mm
+    }
+
+    const doc = new jsPDF({
+      orientation,
+      unit: 'mm',
+      format: 'a4',
+    });
+
+    // Add title
+    doc.setFontSize(16);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`Telefonassistent: ${config.praxisName}`, 14, 15);
+    
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100);
+    doc.text(`Stand: ${new Date(config.updatedAt).toLocaleDateString('de-DE')}`, 14, 22);
+    doc.setTextColor(0);
+
+    // Calculate image size to fit on page with margins
+    const margin = 14;
+    const availableWidth = pdfWidth - (margin * 2);
+    const availableHeight = pdfHeight - 30 - margin; // 30mm for header
+
+    const scale = Math.min(
+      availableWidth / (imgWidth / 2), // divide by 2 because we scaled canvas by 2
+      availableHeight / (imgHeight / 2)
+    );
+
+    const finalWidth = (imgWidth / 2) * scale;
+    const finalHeight = (imgHeight / 2) * scale;
+
+    // Center the image
+    const x = margin + (availableWidth - finalWidth) / 2;
+    const y = 28;
+
+    doc.addImage(imgData, 'PNG', x, y, finalWidth, finalHeight);
+
+    doc.save(`TA_${config.praxisName.replace(/\s+/g, '_')}.pdf`);
+  } catch (error) {
+    console.error('PDF export failed:', error);
+  }
 }

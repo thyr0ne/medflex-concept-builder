@@ -1,12 +1,12 @@
 import { useAssistantConfig } from '@/hooks/useAssistantConfig';
-import FlowchartView from '@/components/FlowchartView';
+import FlowchartView, { FlowchartContent } from '@/components/FlowchartView';
 import NodeEditor from '@/components/NodeEditor';
 import { downloadPDF, downloadText } from '@/lib/export-utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { FileText, Download, RotateCcw, Phone, PanelRightClose, PanelRight } from 'lucide-react';
 import { toast } from 'sonner';
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { cn } from '@/lib/utils';
 
 const Index = () => {
@@ -23,10 +23,21 @@ const Index = () => {
   } = useAssistantConfig();
 
   const [editorOpen, setEditorOpen] = useState(true);
+  const [isExporting, setIsExporting] = useState(false);
+  const pdfExportRef = useRef<HTMLDivElement>(null);
 
-  const handleExportPDF = () => {
-    downloadPDF(config);
-    toast.success('PDF wurde exportiert');
+  const handleExportPDF = async () => {
+    setIsExporting(true);
+    // Wait for the hidden export element to render
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
+    if (pdfExportRef.current) {
+      await downloadPDF(config, pdfExportRef.current);
+      toast.success('PDF wurde exportiert');
+    } else {
+      toast.error('PDF Export fehlgeschlagen');
+    }
+    setIsExporting(false);
   };
 
   const handleExportText = () => {
@@ -43,6 +54,21 @@ const Index = () => {
 
   return (
     <div className="flex h-screen flex-col bg-background">
+      {/* Hidden PDF export container */}
+      {isExporting && (
+        <div className="fixed left-[-9999px] top-0">
+          <FlowchartContent
+            ref={pdfExportRef}
+            nodes={config.nodes}
+            selectedNodeId={null}
+            onSelectNode={() => {}}
+            onAddChild={() => {}}
+            isPdfMode={true}
+            praxisName={config.praxisName}
+          />
+        </div>
+      )}
+
       {/* Top Bar */}
       <header className="flex items-center justify-between border-b bg-card px-4 py-3 shrink-0">
         <div className="flex items-center gap-3">
@@ -62,8 +88,8 @@ const Index = () => {
           <Button variant="outline" size="sm" onClick={handleExportText}>
             <FileText className="w-4 h-4 mr-1" /> TXT
           </Button>
-          <Button variant="outline" size="sm" onClick={handleExportPDF}>
-            <Download className="w-4 h-4 mr-1" /> PDF
+          <Button variant="outline" size="sm" onClick={handleExportPDF} disabled={isExporting}>
+            <Download className="w-4 h-4 mr-1" /> {isExporting ? 'Exportiere...' : 'PDF'}
           </Button>
           <Button variant="ghost" size="sm" onClick={handleReset}>
             <RotateCcw className="w-4 h-4" />
