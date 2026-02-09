@@ -9,7 +9,8 @@ function buildTextLines(nodes: AssistantNode[], nodeId: string, depth: number): 
   const indent = '  '.repeat(depth);
   const lines: string[] = [];
 
-  lines.push(`${indent}# ${getNodeTypeLabel(node.type).toUpperCase()}: ${node.title}`);
+  const importantMarker = node.isImportant ? ' ⚠️ WICHTIG' : '';
+  lines.push(`${indent}# ${getNodeTypeLabel(node.type).toUpperCase()}: ${node.title}${importantMarker}`);
   lines.push('');
   if (node.format === 'audiofile' && node.audioFileName) {
     lines.push(`${indent}Format: Audiofile (${node.audioFileName})`);
@@ -22,20 +23,50 @@ function buildTextLines(nodes: AssistantNode[], nodeId: string, depth: number): 
     node.ansageText.split('\n').forEach(l => lines.push(`${indent}  ${l}`));
     lines.push('');
   }
+
+  // Localized texts
+  if (node.localizedTitles && Object.keys(node.localizedTitles).length > 0) {
+    lines.push(`${indent}Übersetzungen Titel:`);
+    Object.entries(node.localizedTitles).forEach(([lang, text]) => {
+      if (text) lines.push(`${indent}  ${lang.toUpperCase()}: ${text}`);
+    });
+    lines.push('');
+  }
+  if (node.localizedAnsageTexts && Object.keys(node.localizedAnsageTexts).length > 0) {
+    lines.push(`${indent}Übersetzungen Ansagetext:`);
+    Object.entries(node.localizedAnsageTexts).forEach(([lang, text]) => {
+      if (text) {
+        lines.push(`${indent}  ${lang.toUpperCase()}:`);
+        text.split('\n').forEach(l => lines.push(`${indent}    ${l}`));
+      }
+    });
+    lines.push('');
+  }
+
   lines.push(`${indent}Tag/Kanal: ${node.tag || 'Nein'}`);
   lines.push(`${indent}Auswahl mit Optionen: ${node.hasOptions ? 'Ja' : 'Nein'}`);
+  if (node.hasOptions) {
+    lines.push(`${indent}Eingabemodus: ${node.inputMode || 'keypress'}`);
+  }
 
   if (node.hasOptions && node.options.length > 0) {
     lines.push('');
     lines.push(`${indent}Optionen:`);
     node.options.forEach(opt => {
-      lines.push(`${indent}  Tastendruck ${opt.key}: ${opt.label}`);
+      const keyPart = node.inputMode !== 'ai_keyword' ? `Tastendruck ${opt.key}: ` : '';
+      const kwPart = (node.inputMode === 'ai_keyword' || node.inputMode === 'both') && opt.aiKeywords?.length
+        ? ` [AI Schlagworte: ${opt.aiKeywords.join(', ')}]`
+        : '';
+      lines.push(`${indent}  ${keyPart}${opt.label}${kwPart}`);
     });
   }
 
   if (node.type === 'forward' && node.forwardNumber) {
     lines.push('');
     lines.push(`${indent}Weiterleitung an: ${node.forwardNumber}`);
+    if (node.forwardRetrieveAfterSec) {
+      lines.push(`${indent}Zurückholen nach: ${node.forwardRetrieveAfterSec} Sekunden`);
+    }
     if (node.forwardFallbackText) {
       lines.push(`${indent}Fallback: ${node.forwardFallbackText}`);
     }
@@ -49,7 +80,7 @@ function buildTextLines(nodes: AssistantNode[], nodeId: string, depth: number): 
   children.forEach(child => {
     const optionLabel = node.options.find(o => o.targetNodeId === child.id)?.label;
     if (optionLabel) {
-      lines.push(`${indent}(bei Tastendruck: ${optionLabel})`);
+      lines.push(`${indent}(bei Auswahl: ${optionLabel})`);
       lines.push('');
     }
     lines.push(...buildTextLines(nodes, child.id, depth + 1));
@@ -87,6 +118,17 @@ export function downloadText(config: AssistantConfig) {
   URL.revokeObjectURL(url);
 }
 
+export function downloadJSON(config: AssistantConfig) {
+  const json = JSON.stringify(config, null, 2);
+  const blob = new Blob([json], { type: 'application/json;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `TA_${config.praxisName.replace(/\s+/g, '_')}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export async function downloadPDF(config: AssistantConfig, flowchartElement: HTMLElement | null) {
   if (!flowchartElement) {
     console.error('Flowchart element not found');
@@ -94,7 +136,6 @@ export async function downloadPDF(config: AssistantConfig, flowchartElement: HTM
   }
 
   try {
-    // Create canvas from the flowchart
     const canvas = await html2canvas(flowchartElement, {
       scale: 2,
       backgroundColor: '#ffffff',
@@ -106,31 +147,16 @@ export async function downloadPDF(config: AssistantConfig, flowchartElement: HTM
     const imgWidth = canvas.width;
     const imgHeight = canvas.height;
 
-    // Calculate PDF dimensions (A4 landscape or portrait based on aspect ratio)
-    const aspectRatio = imgWidth / imgHeight;
-    let pdfWidth: number;
-    let pdfHeight: number;
-    let orientation: 'portrait' | 'landscape';
-
-    if (aspectRatio > 1.2) {
-      // Wide flowchart - use landscape
-      orientation = 'landscape';
-      pdfWidth = 297; // A4 landscape width in mm
-      pdfHeight = 210; // A4 landscape height in mm
-    } else {
-      // Tall or square - use portrait
-      orientation = 'portrait';
-      pdfWidth = 210; // A4 portrait width in mm
-      pdfHeight = 297; // A4 portrait height in mm
-    }
+    // Use custom page size matching the content
+    const pdfWidthMm = (imgWidth / 2) * 0.264583; // px to mm at scale 2
+    const pdfHeightMm = (imgHeight / 2) * 0.264583 + 30; // + header
 
     const doc = new jsPDF({
-      orientation,
+      orientation: pdfWidthMm > pdfHeightMm ? 'landscape' : 'portrait',
       unit: 'mm',
-      format: 'a4',
+      format: [Math.max(pdfWidthMm, 210), Math.max(pdfHeightMm, 297)],
     });
 
-    // Add title
     doc.setFontSize(16);
     doc.setFont('helvetica', 'bold');
     doc.text(`Telefonassistent: ${config.praxisName}`, 14, 15);
@@ -141,24 +167,10 @@ export async function downloadPDF(config: AssistantConfig, flowchartElement: HTM
     doc.text(`Stand: ${new Date(config.updatedAt).toLocaleDateString('de-DE')}`, 14, 22);
     doc.setTextColor(0);
 
-    // Calculate image size to fit on page with margins
-    const margin = 14;
-    const availableWidth = pdfWidth - (margin * 2);
-    const availableHeight = pdfHeight - 30 - margin; // 30mm for header
+    const finalWidth = imgWidth / 2 * 0.264583;
+    const finalHeight = imgHeight / 2 * 0.264583;
 
-    const scale = Math.min(
-      availableWidth / (imgWidth / 2), // divide by 2 because we scaled canvas by 2
-      availableHeight / (imgHeight / 2)
-    );
-
-    const finalWidth = (imgWidth / 2) * scale;
-    const finalHeight = (imgHeight / 2) * scale;
-
-    // Center the image
-    const x = margin + (availableWidth - finalWidth) / 2;
-    const y = 28;
-
-    doc.addImage(imgData, 'PNG', x, y, finalWidth, finalHeight);
+    doc.addImage(imgData, 'PNG', 14, 28, finalWidth, finalHeight);
 
     doc.save(`TA_${config.praxisName.replace(/\s+/g, '_')}.pdf`);
   } catch (error) {

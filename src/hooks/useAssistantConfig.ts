@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { AssistantConfig, AssistantNode } from '@/types/assistant';
-import { createDefaultConfig, createNewNode, deleteNodeAndChildren } from '@/lib/assistant-utils';
+import { createDefaultConfig, createNewNode, deleteNodeAndChildren, insertNodeBefore } from '@/lib/assistant-utils';
 
 const STORAGE_KEY = 'medflex-ta-config';
 
@@ -42,11 +42,21 @@ export function useAssistantConfig() {
     return newNode;
   }, [config, saveConfig]);
 
+  const insertNodeBeforeId = useCallback((targetNodeId: string) => {
+    try {
+      const { newNodes, insertedNode } = insertNodeBefore(config.nodes, targetNodeId);
+      saveConfig({ ...config, nodes: newNodes });
+      setSelectedNodeId(insertedNode.id);
+      return insertedNode;
+    } catch {
+      return null;
+    }
+  }, [config, saveConfig]);
+
   const deleteNode = useCallback((nodeId: string) => {
     const node = config.nodes.find(n => n.id === nodeId);
-    if (!node || !node.parentId) return; // can't delete root
+    if (!node || !node.parentId) return;
     const newNodes = deleteNodeAndChildren(config.nodes, nodeId);
-    // Also remove from parent options
     const parent = newNodes.find(n => n.id === node.parentId);
     if (parent) {
       parent.options = parent.options.filter(o => o.targetNodeId !== nodeId);
@@ -61,6 +71,22 @@ export function useAssistantConfig() {
     setSelectedNodeId(newConfig.nodes[0]?.id || null);
   }, [saveConfig]);
 
+  const importConfig = useCallback((jsonString: string) => {
+    try {
+      const imported = JSON.parse(jsonString) as AssistantConfig;
+      if (!imported.nodes || !imported.id) throw new Error('Invalid format');
+      saveConfig(imported);
+      setSelectedNodeId(imported.nodes[0]?.id || null);
+      return true;
+    } catch {
+      return false;
+    }
+  }, [saveConfig]);
+
+  const exportConfigJSON = useCallback(() => {
+    return JSON.stringify(config, null, 2);
+  }, [config]);
+
   const selectedNode = config.nodes.find(n => n.id === selectedNodeId) || null;
 
   return {
@@ -71,8 +97,11 @@ export function useAssistantConfig() {
     updatePraxisName,
     updateNode,
     addChildNode,
+    insertNodeBeforeId,
     deleteNode,
     resetConfig,
     saveConfig,
+    importConfig,
+    exportConfigJSON,
   };
 }

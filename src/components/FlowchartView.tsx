@@ -1,6 +1,6 @@
 import { AssistantNode } from '@/types/assistant';
 import { getChildNodes, getNodeTypeLabel } from '@/lib/assistant-utils';
-import { Plus, Phone, MessageSquare, ArrowRight, XCircle, Mic, Volume2, FileAudio } from 'lucide-react';
+import { Plus, Phone, MessageSquare, ArrowRight, XCircle, Mic, Volume2, FileAudio, AlertTriangle, Globe, ArrowDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useMemo, forwardRef } from 'react';
 
@@ -9,6 +9,7 @@ interface FlowchartViewProps {
   selectedNodeId: string | null;
   onSelectNode: (id: string) => void;
   onAddChild: (parentId: string) => void;
+  onInsertBefore?: (nodeId: string) => void;
 }
 
 const NODE_ICONS: Record<string, React.ElementType> = {
@@ -32,22 +33,34 @@ interface TreeLayout {
   x: number;
   y: number;
   width: number;
+  height: number;
   children: TreeLayout[];
 }
 
-const NODE_HEIGHT = 130;
-const NODE_WIDTH = 220;
+const NODE_WIDTH = 240;
+const NODE_MIN_HEIGHT = 100;
 const NODE_GAP_X = 24;
 const NODE_GAP_Y = 50;
+
+function estimateNodeHeight(node: AssistantNode): number {
+  const textLen = node.ansageText.length;
+  const lines = Math.ceil(textLen / 35) + 1; // rough chars per line
+  const extraLines = (node.tag ? 1 : 0) + (node.forwardNumber ? 1 : 0) + (node.hasOptions ? 1 : 0) + (node.isImportant ? 1 : 0);
+  const langCount = Object.keys(node.localizedTitles || {}).length;
+  return Math.max(NODE_MIN_HEIGHT, 70 + lines * 13 + extraLines * 18 + langCount * 14);
+}
 
 function calculateLayout(
   nodes: AssistantNode[],
   nodeId: string,
   depth: number = 0,
-  startX: number = 0
+  startX: number = 0,
+  yOffset: number = 0
 ): TreeLayout {
   const node = nodes.find(n => n.id === nodeId);
-  if (!node) return { nodeId, x: startX, y: depth * (NODE_HEIGHT + NODE_GAP_Y), width: NODE_WIDTH, children: [] };
+  const nodeHeight = node ? estimateNodeHeight(node) : NODE_MIN_HEIGHT;
+
+  if (!node) return { nodeId, x: startX, y: yOffset, width: NODE_WIDTH, height: nodeHeight, children: [] };
 
   const children = getChildNodes(nodes, nodeId);
 
@@ -55,17 +68,19 @@ function calculateLayout(
     return {
       nodeId,
       x: startX,
-      y: depth * (NODE_HEIGHT + NODE_GAP_Y),
+      y: yOffset,
       width: NODE_WIDTH,
+      height: nodeHeight,
       children: [],
     };
   }
 
   let currentX = startX;
   const childLayouts: TreeLayout[] = [];
+  const childY = yOffset + nodeHeight + NODE_GAP_Y;
 
   for (const child of children) {
-    const childLayout = calculateLayout(nodes, child.id, depth + 1, currentX);
+    const childLayout = calculateLayout(nodes, child.id, depth + 1, currentX, childY);
     childLayouts.push(childLayout);
     currentX += childLayout.width + NODE_GAP_X;
   }
@@ -77,8 +92,9 @@ function calculateLayout(
   return {
     nodeId,
     x: Math.max(startX, x),
-    y: depth * (NODE_HEIGHT + NODE_GAP_Y),
+    y: yOffset,
     width,
+    height: nodeHeight,
     children: childLayouts,
   };
 }
@@ -90,6 +106,7 @@ function FlowchartNode({
   isSelected,
   onSelect,
   onAddChild,
+  onInsertBefore,
   isPdfMode,
 }: {
   node: AssistantNode;
@@ -98,21 +115,25 @@ function FlowchartNode({
   isSelected: boolean;
   onSelect: () => void;
   onAddChild: () => void;
+  onInsertBefore?: () => void;
   isPdfMode?: boolean;
 }) {
   const Icon = NODE_ICONS[node.type] || MessageSquare;
   const styles = NODE_STYLES[node.type] || NODE_STYLES.question;
   const optionLabel = parentNode?.options.find(o => o.targetNodeId === node.id)?.label;
-  const ansagePreview = node.ansageText.length > 60 ? node.ansageText.substring(0, 60) + '...' : node.ansageText;
+  const optionKey = parentNode?.options.find(o => o.targetNodeId === node.id)?.key;
+  const langCount = Object.keys(node.localizedTitles || {}).length;
+  const inputMode = node.inputMode || 'keypress';
 
   return (
     <g>
-      <foreignObject x={layout.x} y={layout.y} width={NODE_WIDTH} height={NODE_HEIGHT}>
+      <foreignObject x={layout.x} y={layout.y} width={NODE_WIDTH} height={layout.height}>
         <div
           className={cn(
             'h-full rounded-xl border-2 p-2.5 cursor-pointer transition-all duration-150 shadow-sm relative',
             styles.bg,
             styles.border,
+            node.isImportant && 'ring-2 ring-yellow-400 ring-offset-1',
             !isPdfMode && 'hover:shadow-lg',
             !isPdfMode && isSelected && 'ring-2 ring-primary ring-offset-2 shadow-lg'
           )}
@@ -121,7 +142,14 @@ function FlowchartNode({
           {/* Option badge */}
           {optionLabel && (
             <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-foreground text-background text-[9px] font-bold rounded-full whitespace-nowrap">
-              [{optionLabel}]
+              {optionKey && inputMode !== 'ai_keyword' ? `[${optionKey}] ` : ''}{optionLabel}
+            </div>
+          )}
+
+          {/* Important marker */}
+          {node.isImportant && (
+            <div className="absolute -top-2 -right-2 bg-yellow-400 rounded-full p-0.5">
+              <AlertTriangle className="w-3 h-3 text-yellow-900" />
             </div>
           )}
 
@@ -132,6 +160,11 @@ function FlowchartNode({
               {getNodeTypeLabel(node.type)}
             </span>
             <div className="flex-1" />
+            {langCount > 0 && (
+              <span title={`${langCount} Übersetzungen`}>
+                <Globe className="w-3 h-3 text-muted-foreground" />
+              </span>
+            )}
             <span title={node.format === 'audiofile' ? 'Audiofile' : 'Synthetisch'}>
               {node.format === 'audiofile' ? (
                 <FileAudio className="w-3 h-3 text-muted-foreground" />
@@ -142,19 +175,19 @@ function FlowchartNode({
           </div>
 
           {/* Title */}
-          <div className="text-sm font-bold text-foreground leading-tight mb-1 truncate">
+          <div className="text-sm font-bold text-foreground leading-tight mb-1">
             {node.title}
           </div>
 
-          {/* Ansage preview */}
-          {ansagePreview && (
-            <div className="text-[10px] text-muted-foreground leading-snug line-clamp-2 mb-1">
-              „{ansagePreview}"
+          {/* Full Ansage text */}
+          {node.ansageText && (
+            <div className="text-[10px] text-muted-foreground leading-snug mb-1 whitespace-pre-wrap break-words">
+              „{node.ansageText}"
             </div>
           )}
 
           {/* Tags & Info row */}
-          <div className="flex items-center gap-1 flex-wrap mt-auto">
+          <div className="flex items-center gap-1 flex-wrap mt-1">
             {node.tag && (
               <span className="text-[9px] px-1.5 py-0.5 rounded bg-accent text-accent-foreground font-medium">
                 Tag: {node.tag}
@@ -165,22 +198,44 @@ function FlowchartNode({
                 → {node.forwardNumber}
               </span>
             )}
+            {node.type === 'forward' && node.forwardRetrieveAfterSec && (
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+                ⏱ {node.forwardRetrieveAfterSec}s
+              </span>
+            )}
             {node.hasOptions && node.options.length > 0 && (
               <span className="text-[9px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
-                {node.options.length} Optionen
+                {node.options.length} Opt.
+                {inputMode !== 'keypress' && ' (AI)'}
+              </span>
+            )}
+            {node.isImportant && (
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-yellow-100 text-yellow-800 font-bold">
+                ⚠ WICHTIG
               </span>
             )}
           </div>
 
-          {/* Add child button */}
+          {/* Buttons */}
           {!isPdfMode && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onAddChild(); }}
-              className="absolute -bottom-3 left-1/2 -translate-x-1/2 w-6 h-6 bg-primary text-primary-foreground rounded-full flex items-center justify-center shadow-md hover:scale-110 transition-transform"
-              title="Kind-Knoten hinzufügen"
-            >
-              <Plus className="w-3.5 h-3.5" />
-            </button>
+            <>
+              <button
+                onClick={(e) => { e.stopPropagation(); onAddChild(); }}
+                className="absolute -bottom-3 left-1/2 -translate-x-1/2 w-6 h-6 bg-primary text-primary-foreground rounded-full flex items-center justify-center shadow-md hover:scale-110 transition-transform"
+                title="Kind-Knoten hinzufügen"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+              {node.parentId && onInsertBefore && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onInsertBefore(); }}
+                  className="absolute -top-3 left-4 w-5 h-5 bg-accent text-accent-foreground rounded-full flex items-center justify-center shadow-md hover:scale-110 transition-transform"
+                  title="Knoten davor einfügen"
+                >
+                  <ArrowDown className="w-3 h-3" />
+                </button>
+              )}
+            </>
           )}
         </div>
       </foreignObject>
@@ -191,7 +246,7 @@ function FlowchartNode({
 function ConnectionLines({ layout }: { layout: TreeLayout }) {
   const lines: JSX.Element[] = [];
   const parentCenterX = layout.x + NODE_WIDTH / 2;
-  const parentBottomY = layout.y + NODE_HEIGHT;
+  const parentBottomY = layout.y + layout.height;
 
   for (const child of layout.children) {
     const childCenterX = child.x + NODE_WIDTH / 2;
@@ -224,6 +279,7 @@ function RenderNodes({
   selectedNodeId,
   onSelectNode,
   onAddChild,
+  onInsertBefore,
   parentNode,
   isPdfMode,
 }: {
@@ -232,6 +288,7 @@ function RenderNodes({
   selectedNodeId: string | null;
   onSelectNode: (id: string) => void;
   onAddChild: (parentId: string) => void;
+  onInsertBefore?: (nodeId: string) => void;
   parentNode?: AssistantNode;
   isPdfMode?: boolean;
 }) {
@@ -247,6 +304,7 @@ function RenderNodes({
         isSelected={selectedNodeId === node.id}
         onSelect={() => onSelectNode(node.id)}
         onAddChild={() => onAddChild(node.id)}
+        onInsertBefore={onInsertBefore ? () => onInsertBefore(node.id) : undefined}
         isPdfMode={isPdfMode}
       />
       {layout.children.map(childLayout => (
@@ -257,6 +315,7 @@ function RenderNodes({
           selectedNodeId={selectedNodeId}
           onSelectNode={onSelectNode}
           onAddChild={onAddChild}
+          onInsertBefore={onInsertBefore}
           parentNode={node}
           isPdfMode={isPdfMode}
         />
@@ -270,17 +329,18 @@ interface FlowchartContentProps {
   selectedNodeId: string | null;
   onSelectNode: (id: string) => void;
   onAddChild: (parentId: string) => void;
+  onInsertBefore?: (nodeId: string) => void;
   isPdfMode?: boolean;
   praxisName?: string;
 }
 
 export const FlowchartContent = forwardRef<HTMLDivElement, FlowchartContentProps>(
-  ({ nodes, selectedNodeId, onSelectNode, onAddChild, isPdfMode, praxisName }, ref) => {
+  ({ nodes, selectedNodeId, onSelectNode, onAddChild, onInsertBefore, isPdfMode, praxisName }, ref) => {
     const rootNode = nodes.find(n => n.parentId === null);
 
     const layout = useMemo(() => {
       if (!rootNode) return null;
-      return calculateLayout(nodes, rootNode.id, 0, 50);
+      return calculateLayout(nodes, rootNode.id, 0, 50, 30);
     }, [nodes, rootNode]);
 
     if (!rootNode || !layout) {
@@ -289,7 +349,7 @@ export const FlowchartContent = forwardRef<HTMLDivElement, FlowchartContentProps
 
     const calculateBounds = (l: TreeLayout): { maxX: number; maxY: number } => {
       let maxX = l.x + NODE_WIDTH;
-      let maxY = l.y + NODE_HEIGHT + 20;
+      let maxY = l.y + l.height + 20;
       for (const child of l.children) {
         const childBounds = calculateBounds(child);
         maxX = Math.max(maxX, childBounds.maxX);
@@ -330,6 +390,7 @@ export const FlowchartContent = forwardRef<HTMLDivElement, FlowchartContentProps
             selectedNodeId={selectedNodeId}
             onSelectNode={onSelectNode}
             onAddChild={onAddChild}
+            onInsertBefore={onInsertBefore}
             isPdfMode={isPdfMode}
           />
         </svg>
@@ -340,7 +401,7 @@ export const FlowchartContent = forwardRef<HTMLDivElement, FlowchartContentProps
 
 FlowchartContent.displayName = 'FlowchartContent';
 
-export default function FlowchartView({ nodes, selectedNodeId, onSelectNode, onAddChild }: FlowchartViewProps) {
+export default function FlowchartView({ nodes, selectedNodeId, onSelectNode, onAddChild, onInsertBefore }: FlowchartViewProps) {
   return (
     <div className="w-full h-full overflow-auto">
       <FlowchartContent
@@ -348,6 +409,7 @@ export default function FlowchartView({ nodes, selectedNodeId, onSelectNode, onA
         selectedNodeId={selectedNodeId}
         onSelectNode={onSelectNode}
         onAddChild={onAddChild}
+        onInsertBefore={onInsertBefore}
       />
     </div>
   );
